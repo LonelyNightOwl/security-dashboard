@@ -1,0 +1,6 @@
+bandit
+streamlit
+pandas
+plotly
+semgrep
+gitpython
