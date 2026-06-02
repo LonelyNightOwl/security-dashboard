@@ -10,11 +10,16 @@ st.set_page_config(page_title="Security Dashboard", layout="wide")
 st.title("🔐 Security Analysis & Vulnerability Dashboard")
 
 # Sidebar
-st.sidebar.header("Controls")
-if st.sidebar.button("🔍 Run New Scan"):
-    with st.spinner("Scanning..."):
-        run_scan()
-    st.success("Scan complete!")
+st.sidebar.header("Scan Options")
+files = os.listdir("sample_code")
+code_files = [f for f in files if f.endswith((".py", ".java", ".c", ".cpp"))]
+
+selected_file = st.sidebar.selectbox("Choose file to scan:", code_files)
+
+if st.sidebar.button("🔍 Scan Selected File"):
+    with st.spinner(f"Scanning {selected_file}..."):
+        run_scan(local_path=f"sample_code/{selected_file}")
+    st.success("✅ Scan complete!")
 
 # Load report
 data = load_latest_report()
@@ -24,19 +29,22 @@ if not data:
     st.stop()
 
 results = data.get("results", [])
-metrics = data.get("metrics", {})
+repo_url = data.get("repo_url", "local")
 
-# ── Top KPI Cards ──────────────────────────────────────────
+# ── Top Info ───────────────────────────────────────────
+st.info(f"📊 Scanned: **{selected_file}** | Languages: **{', '.join(data.get('languages', ['None']))}**")
+
+# ── KPI Cards ──────────────────────────────────────────
 total = len(results)
-critical = sum(1 for r in results if r["issue_severity"] == "HIGH")
-medium   = sum(1 for r in results if r["issue_severity"] == "MEDIUM")
-low      = sum(1 for r in results if r["issue_severity"] == "LOW")
+critical = sum(1 for r in results if r["severity"] == "HIGH")
+medium   = sum(1 for r in results if r["severity"] == "MEDIUM")
+low      = sum(1 for r in results if r["severity"] == "LOW")
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Issues",    total)
-col2.metric("🔴 High",         critical)
-col3.metric("🟠 Medium",       medium)
-col4.metric("🟢 Low",          low)
+col1.metric("Total Issues", total)
+col2.metric("🔴 High", critical)
+col3.metric("🟠 Medium", medium)
+col4.metric("🟢 Low", low)
 
 st.divider()
 
@@ -44,17 +52,17 @@ if not results:
     st.success("✅ No vulnerabilities found!")
     st.stop()
 
-# ── Build DataFrame ────────────────────────────────────────
+# ── Build DataFrame ────────────────────────────────────
 df = pd.DataFrame([{
-    "File":        os.path.basename(r["filename"]),
-    "Line":        r["line_number"],
-    "Severity":    r["issue_severity"],
-    "Confidence":  r["issue_confidence"],
-    "Issue":       r["issue_text"],
-    "Test ID":     r["test_id"],
+    "File": os.path.basename(r["file"]),
+    "Line": r["line"],
+    "Severity": r["severity"],
+    "Confidence": r["confidence"],
+    "Issue": r["issue"],
+    "Tool": r["tool"],
 } for r in results])
 
-# ── Charts ─────────────────────────────────────────────────
+# ── Charts ─────────────────────────────────────────────
 col1, col2 = st.columns(2)
 
 with col1:
@@ -67,17 +75,17 @@ with col1:
     st.plotly_chart(fig1, use_container_width=True)
 
 with col2:
-    st.subheader("Issues by Type")
+    st.subheader("Issues by Tool")
     fig2 = px.bar(
-        df.groupby("Test ID").size().reset_index(name="Count"),
-        x="Test ID", y="Count", color="Count",
+        df.groupby("Tool").size().reset_index(name="Count"),
+        x="Tool", y="Count", color="Count",
         color_continuous_scale="reds"
     )
     st.plotly_chart(fig2, use_container_width=True)
 
 st.divider()
 
-# ── Detailed Table ─────────────────────────────────────────
+# ── Detailed Table ─────────────────────────────────────
 st.subheader("📋 Detailed Findings")
 
 severity_filter = st.multiselect(
@@ -89,12 +97,11 @@ severity_filter = st.multiselect(
 filtered_df = df[df["Severity"].isin(severity_filter)]
 st.dataframe(filtered_df, use_container_width=True)
 
-# ── Raw Log Viewer ─────────────────────────────────────────
+# ── Summary ────────────────────────────────────────────
 st.divider()
-st.subheader("🗂️ Raw Findings")
-for r in results:
-    severity = r["issue_severity"]
-    color = "🔴" if severity == "HIGH" else "🟠" if severity == "MEDIUM" else "🟢"
-    with st.expander(f"{color} {r['issue_text']} — Line {r['line_number']}"):
-        st.code(r.get("code", "N/A"), language="python")
-        st.caption(f"File: {r['filename']} | Test: {r['test_id']} | Confidence: {r['issue_confidence']}")
+st.subheader("📊 Summary")
+col1, col2 = st.columns(2)
+with col1:
+    st.metric("Total Scanned Files", len(set([r["file"] for r in results])))
+with col2:
+    st.metric("Critical Issues", critical)
